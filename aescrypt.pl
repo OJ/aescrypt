@@ -4,6 +4,7 @@
 # Encrypts chats using AES. Inspired by the blowjob.pl script.
 # Perl modules required:
 #     - Crypt::CBC
+#     - Crypt::Rijndael
 #     - JSON
 #     - MIME::Base64
 #     - Digest::SHA
@@ -41,6 +42,7 @@ $VERSION = "0.1.0";
 
 my $enc_id = 'AES';
 my $chk_id = 'chk';
+my $required_iv_length = 16;
 
 sub get_keys_file
 {
@@ -170,18 +172,30 @@ sub ui_set_key
 {
   my (undef, $server, $channel) = @_;
   my $key = $_[0];
-  set_key($keys, $server->{address}, $channel->{name}, $key);
-  save_keys($keys);
-  Irssi::active_win()->print("\00315AES Key set to $key");
+
+  if (length($key) > 0)
+  {
+    set_key($keys, $server->{address}, $channel->{name}, $key);
+    save_keys($keys);
+    Irssi::active_win()->print("\00315AES Key set to $key");
+  } else {
+    Irssi::active_win()->print("\00315AES Key length must be greater than zero");
+  }
 }
 
 sub ui_set_iv
 {
   my (undef, $server, $channel) = @_;
   my $iv = $_[0];
-  set_iv($keys, $server->{address}, $channel->{name}, $iv);
-  save_keys($keys);
-  Irssi::active_win()->print("\00315AES IV set to $iv");
+
+  if (length($iv) == $required_iv_length)
+  {
+    set_iv($keys, $server->{address}, $channel->{name}, $iv);
+    save_keys($keys);
+    Irssi::active_win()->print("\00315AES IV set to $iv");
+  } else {
+    Irssi::active_win()->print("\00315AES IV must be $required_iv_length characters long");
+  }
 }
 
 sub ui_on
@@ -230,7 +244,8 @@ sub ui_encrypt
   my ($data, $server, $channel) = @_;
   my $pair = get_pair($keys, $server->{address}, $channel->{name});
 
-  unless(exists($pair->{key}) && exists($pair->{iv}))
+  unless(exists($pair->{key}) && exists($pair->{iv})
+  && length($pair->{key}) > 0 && length($pair->{iv}) == $required_iv_length)
   {
     Irssi::active_win()->print("\00315AES not configured for this window");
     return;
