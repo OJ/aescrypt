@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-# aescrypt.pl 0.1.0 by OJ Reeves <oj@buffered.io> @TheColonial
+# aescrypt.pl 0.2.0 by OJ Reeves <oj@buffered.io> @TheColonial
 # Encrypts chats using AES. Inspired by the blowjob.pl script.
 # Perl modules required:
 #     - Crypt::CBC
@@ -30,7 +30,7 @@ use Irssi;
 
 use vars qw($VERSION %IRSSI $cipher);
 
-$VERSION = "0.1.0";
+$VERSION = "0.2.0";
 %IRSSI = (
     authors => 'OJ Reeves',
     contact => 'oj@buffered.io',
@@ -44,6 +44,7 @@ my $enc_id = 'a';
 my $chk_id = 'h';
 my $salt_id = 's';
 my $required_iv_length = 16;
+my $salt_length = 10;
 
 sub get_keys_file
 {
@@ -173,8 +174,8 @@ sub checksum
 
 sub create_salt
 {
-  my @set = {'0' .. '9', 'A' .. 'Z', 'a' .. 'z', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '=', '-', '/', '\\'};
-  return join '' => map $set[rand @set], 1 .. 10;
+  my @set = ('0' .. '9', 'A' .. 'Z', 'a' .. 'z', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '=', '-', '/', '\\');
+  return join '' => map $set[rand @set], 1 .. $salt_length;
 }
 
 my $keys = load_keys();
@@ -239,6 +240,7 @@ sub ui_show
     my $key = $keys->{$server->{address}}->{$channel->{name}}->{key};
     my $iv = $keys->{$server->{address}}->{$channel->{name}}->{iv};
     my $active = $keys->{$server->{address}}->{$channel->{name}}->{active};
+    $active = '0' if ($active eq '');
 
     Irssi::active_win()->print("\00315Current Key: $key");
     Irssi::active_win()->print("\00315Current IV : $iv");
@@ -262,7 +264,7 @@ sub ui_encrypt
     return;
   }
 
-  my $ciphertext = encrypt($pair, $data);
+  my $ciphertext = encrypt($pair, create_salt() . $data);
   my $salt = create_salt();
   my $checksum = checksum($data . $salt);
   my $payload = {$enc_id => $ciphertext, $salt_id => $salt, $chk_id => $checksum};
@@ -290,7 +292,7 @@ sub msg_received
   return unless(exists($pair->{key}) && exists($pair->{iv})
     && length($pair->{key}) > 0 && length($pair->{iv}) == $required_iv_length);
 
-  $msg = decrypt($pair, $json->{$enc_id});
+  $msg = substr decrypt($pair, $json->{$enc_id}), $salt_length;
   my $checksum = checksum($msg . $json->{$salt_id});
 
   if ($checksum eq $json->{$chk_id})
