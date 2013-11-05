@@ -23,7 +23,7 @@ use strict;
 use Crypt::CBC;
 use JSON;
 use MIME::Base64;
-use Digest::SHA qw(sha1_base64);
+use Digest::SHA qw(sha256_base64);
 
 use Irssi::Irc;
 use Irssi;
@@ -40,8 +40,9 @@ $VERSION = "0.1.0";
     url => 'https://github.com/OJ/aescript'
   );
 
-my $enc_id = 'AES';
-my $chk_id = 'chk';
+my $enc_id = 'a';
+my $chk_id = 'h';
+my $salt_id = 's';
 my $required_iv_length = 16;
 
 sub get_keys_file
@@ -167,7 +168,13 @@ sub decrypt
 sub checksum
 {
   my ($data) = @_;
-  return sha1_base64($data);
+  return sha256_base64($data);
+}
+
+sub create_salt
+{
+  my @set = {'0' .. '9', 'A' .. 'Z', 'a' .. 'z', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '=', '-', '/', '\\'};
+  return join '' => map $set[rand @set], 1 .. 10;
 }
 
 my $keys = load_keys();
@@ -256,8 +263,9 @@ sub ui_encrypt
   }
 
   my $ciphertext = encrypt($pair, $data);
-  my $checksum = checksum($data);
-  my $payload = {$enc_id => $ciphertext, $chk_id => $checksum};
+  my $salt = create_salt();
+  my $checksum = checksum($data . $salt);
+  my $payload = {$enc_id => $ciphertext, $salt_id => $salt, $chk_id => $checksum};
   my $msg = encode_json($payload);
 
   $server->print($channel->{name}, "<$server->{nick}> \00311{+} $data", MSGLEVEL_CLIENTCRAP);
@@ -283,7 +291,7 @@ sub msg_received
     && length($pair->{key}) > 0 && length($pair->{iv}) == $required_iv_length);
 
   $msg = decrypt($pair, $json->{$enc_id});
-  my $checksum = checksum($msg);
+  my $checksum = checksum($msg . $json->{$salt_id});
 
   if ($checksum eq $json->{$chk_id})
   {
