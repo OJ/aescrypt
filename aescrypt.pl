@@ -129,7 +129,11 @@ sub set_active
 sub get_pair
 {
   my ($keys, $server, $id) = @_;
-  return $keys->{$server}->{$id};
+  if (exists($keys->{$server}) && exists($keys->{$server}->{$id}))
+  {
+    return $keys->{$server}->{$id};
+  }
+  return {};
 }
 
 sub get_cipher
@@ -245,7 +249,7 @@ sub ui_encrypt
   my $pair = get_pair($keys, $server->{address}, $channel->{name});
 
   unless(exists($pair->{key}) && exists($pair->{iv})
-  && length($pair->{key}) > 0 && length($pair->{iv}) == $required_iv_length)
+    && length($pair->{key}) > 0 && length($pair->{iv}) == $required_iv_length)
   {
     Irssi::active_win()->print("\00315AES not configured for this window");
     return;
@@ -274,6 +278,10 @@ sub msg_received
   return if(!exists($json->{$enc_id}));
 
   my $pair = get_pair($keys, $server->{address}, $id);
+
+  return unless(exists($pair->{key}) && exists($pair->{iv})
+    && length($pair->{key}) > 0 && length($pair->{iv}) == $required_iv_length);
+
   $msg = decrypt($pair, $json->{$enc_id});
   my $checksum = checksum($msg);
 
