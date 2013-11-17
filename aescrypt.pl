@@ -285,6 +285,7 @@ sub msg_received
   my $id = $target;
   $id = $nick if $target eq $server->{nick};
   
+  return unless(ref($json) eq "HASH");
   return if(!exists($json->{$enc_id}));
 
   my $pair = get_pair($keys, $server->{address}, $id);
