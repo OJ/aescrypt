@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-# aescrypt.pl 0.2.0 by OJ Reeves <oj@buffered.io> @TheColonial
+# aescrypt.pl 0.2.2 by OJ Reeves <oj@buffered.io> @TheColonial
 # Encrypts chats using AES. Inspired by the blowjob.pl script.
 # Perl modules required:
 #     - Crypt::CBC
@@ -30,7 +30,7 @@ use Irssi;
 
 use vars qw($VERSION %IRSSI $cipher);
 
-$VERSION = "0.2.0";
+$VERSION = "0.2.2";
 %IRSSI = (
     authors => 'OJ Reeves',
     contact => 'oj@buffered.io',
@@ -45,6 +45,14 @@ my $chk_id = 'h';
 my $salt_id = 's';
 my $required_iv_length = 16;
 my $salt_length = 10;
+
+sub trim($)
+{
+  my $string = shift;
+  $string =~ s/^\s+//;
+  $string =~ s/\s+$//;
+  return $string;
+}
 
 sub get_keys_file
 {
@@ -255,6 +263,13 @@ sub ui_show
 sub ui_encrypt
 {
   my ($data, $server, $channel) = @_;
+
+  # Don't transmit blank lines
+  unless(length(trim($data)) > 0)
+  {
+    return;
+  }
+
   my $pair = get_pair($keys, $server->{address}, $channel->{name});
 
   unless(exists($pair->{key}) && exists($pair->{iv})
@@ -264,14 +279,21 @@ sub ui_encrypt
     return;
   }
 
-  my $ciphertext = encrypt($pair, create_salt() . $data);
-  my $salt = create_salt();
-  my $checksum = checksum($data . $salt);
-  my $payload = {$enc_id => $ciphertext, $salt_id => $salt, $chk_id => $checksum};
-  my $msg = encode_json($payload);
+  # Break messages into chunks of 200 chars each so that we don't end up with
+  # message truncation via IRC resulting in borked JSON payloads
+  my @chunks = ($data =~ m/.{1,200}/g);
 
-  $server->print($channel->{name}, "<$server->{nick}> \00311{+} $data", MSGLEVEL_CLIENTCRAP);
-  $server->command("/^msg -$server->{tag} $channel->{name} $msg");
+  foreach (@chunks)
+  {
+    my $ciphertext = encrypt($pair, create_salt() . $_);
+    my $salt = create_salt();
+    my $checksum = checksum($_ . $salt);
+    my $payload = {$enc_id => $ciphertext, $salt_id => $salt, $chk_id => $checksum};
+    my $msg = encode_json($payload);
+
+    $server->print($channel->{name}, "<$server->{nick}> \00311{+} $_", MSGLEVEL_CLIENTCRAP);
+    $server->command("/^msg -$server->{tag} $channel->{name} $msg");
+  }
 }
 
 sub msg_received
@@ -298,7 +320,15 @@ sub msg_received
 
   if ($checksum eq $json->{$chk_id})
   {
-    Irssi::signal_continue($server, "$target :\00311{+} $msg", $nick, $address);
+    if (length(trim($msg)) > 0)
+    {
+      Irssi::signal_continue($server, "$target :\00311{+} $msg", $nick, $address);
+    }
+    else
+    {
+      # ignore blank lines
+      Irssi::signal_stop();
+    }
   }
 }
 
