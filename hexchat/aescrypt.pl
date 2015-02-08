@@ -319,7 +319,7 @@ sub msg_received {
 
 	my $pair = get_pair($keys, $server->{address}, $id);
 
-	return HexChat::EAT_NONE unless(exists($pair->{key}) && exists($pair->{iv}) && length($pair->{key}) > 0 && length($pair->{iv}) == $required_iv_length && exists($pair->{active}) && $pair->{active} eq 1);
+	return HexChat::EAT_NONE unless(exists($pair->{key}) && exists($pair->{iv}) && length($pair->{key}) > 0 && length($pair->{iv}) == $required_iv_length);
 
 	$msg = substr decrypt($pair, $json->{$enc_id}), $salt_length;
 	my $checksum = checksum($msg . $json->{$salt_id});
