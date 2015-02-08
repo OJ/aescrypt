@@ -32,7 +32,7 @@ use HexChat qw(:all);
 
 use vars qw($VERSION %IRSSI $cipher);
 
-$VERSION = "0.1.0";
+$VERSION = "0.2.2";
 %IRSSI = (
 	authors => 'OJ Reeves',
 	contact => 'oj@buffered.io',
