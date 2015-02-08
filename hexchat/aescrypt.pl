@@ -21,7 +21,6 @@
 #       blowjob.pl script does
 
 use strict;
-#use warnings;
 
 use Crypt::CBC;
 use JSON;
