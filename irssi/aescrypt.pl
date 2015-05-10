@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-# aescrypt.pl 0.2.2 by OJ Reeves <oj@buffered.io> @TheColonial
+# aescrypt.pl 0.2.3 by OJ Reeves <oj@buffered.io> @TheColonial
 # Encrypts chats using AES. Inspired by the blowjob.pl script.
 # Perl modules required:
 #     - Crypt::CBC
@@ -9,7 +9,7 @@
 #     - MIME::Base64
 #     - Digest::SHA
 # Features:
-#     - Per user/channel AES encryption keys and IV
+#     - Per user/channel AES encryption keys
 #     - Payloads sent as JSON, with checksum for payload validation
 #     - Single messages via /aes <message>
 #     - Enable for all messages via /aeson
@@ -30,21 +30,18 @@ use Irssi;
 
 use vars qw($VERSION %IRSSI $cipher);
 
-$VERSION = "0.2.2";
+$VERSION = "0.2.3";
 %IRSSI = (
     authors => 'OJ Reeves',
     contact => 'oj@buffered.io',
     name => 'aescrypt',
-    description => 'This script encrypts IRC communications using AES in CBC mode. The script supports per-user and per-channel keys and IVs which can be set via irssi commands. Encrypted content is compresed and Base64 encoded prior to being transmitted.',
+    description => 'This script encrypts IRC communications using AES in CBC mode. The script supports per-user and per-channel keys which can be set via irssi commands. Encrypted content is compresed and Base64 encoded prior to being transmitted.',
     license => 'Apache 2.0',
     url => 'https://github.com/OJ/aescript'
   );
 
 my $enc_id = 'a';
 my $chk_id = 'h';
-my $salt_id = 's';
-my $required_iv_length = 16;
-my $salt_length = 10;
 
 sub trim($)
 {
@@ -86,22 +83,6 @@ sub save_keys
   open my $fh, '>', $source_file;
   print $fh encode_json($keys);
   close $fh;
-}
-
-sub set_iv
-{
-  my ($keys, $server, $id, $iv) = @_;
-
-  unless(exists($keys->{$server}))
-  {
-    $keys->{$server} = {};
-  }
-  unless(exists($keys->{$server}->{$id}))
-  {
-    $keys->{$server}->{$id} = {};
-  }
-
-  $keys->{$server}->{$id}->{iv} = $iv;
 }
 
 sub set_key
@@ -151,9 +132,8 @@ sub get_cipher
   my ($pair) = @_;
   return Crypt::CBC->new({
       key => $pair->{key},
-      iv => $pair->{iv},
       cipher => 'Crypt::Rijndael',
-      header => 'none',
+      header => 'salt',
       keysize => 32
     });
 }
@@ -180,12 +160,6 @@ sub checksum
   return sha256_base64($data);
 }
 
-sub create_salt
-{
-  my @set = ('0' .. '9', 'A' .. 'Z', 'a' .. 'z', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '=', '-', '/', '\\');
-  return join '' => map $set[rand @set], 1 .. $salt_length;
-}
-
 my $keys = load_keys();
 
 sub ui_set_key
@@ -200,21 +174,6 @@ sub ui_set_key
     Irssi::active_win()->print("\00315AES Key set to $key");
   } else {
     Irssi::active_win()->print("\00315AES Key length must be greater than zero");
-  }
-}
-
-sub ui_set_iv
-{
-  my (undef, $server, $channel) = @_;
-  my $iv = $_[0];
-
-  if (length($iv) == $required_iv_length)
-  {
-    set_iv($keys, $server->{address}, $channel->{name}, $iv);
-    save_keys($keys);
-    Irssi::active_win()->print("\00315AES IV set to $iv");
-  } else {
-    Irssi::active_win()->print("\00315AES IV must be $required_iv_length characters long");
   }
 }
 
@@ -246,17 +205,15 @@ sub ui_show
     && exists($keys->{$server->{address}}->{$channel->{name}}))
   {
     my $key = $keys->{$server->{address}}->{$channel->{name}}->{key};
-    my $iv = $keys->{$server->{address}}->{$channel->{name}}->{iv};
     my $active = $keys->{$server->{address}}->{$channel->{name}}->{active};
     $active = '0' if ($active eq '');
 
     Irssi::active_win()->print("\00315Current Key: $key");
-    Irssi::active_win()->print("\00315Current IV : $iv");
     Irssi::active_win()->print("\00315AES Active : $active");
   }
   else
   {
-    Irssi::active_win()->print("\00315No Key or IV set");
+    Irssi::active_win()->print("\00315No Key set");
   }
 }
 
@@ -272,8 +229,7 @@ sub ui_encrypt
 
   my $pair = get_pair($keys, $server->{address}, $channel->{name});
 
-  unless(exists($pair->{key}) && exists($pair->{iv})
-    && length($pair->{key}) > 0 && length($pair->{iv}) == $required_iv_length)
+  unless(exists($pair->{key}) && length($pair->{key}) > 0)
   {
     Irssi::active_win()->print("\00315AES not configured for this window");
     return;
@@ -285,10 +241,9 @@ sub ui_encrypt
 
   foreach (@chunks)
   {
-    my $ciphertext = encrypt($pair, create_salt() . $_);
-    my $salt = create_salt();
-    my $checksum = checksum($_ . $salt);
-    my $payload = {$enc_id => $ciphertext, $salt_id => $salt, $chk_id => $checksum};
+    my $ciphertext = encrypt($pair, $_);
+    my $checksum = checksum($_);
+    my $payload = {$enc_id => $ciphertext, $chk_id => $checksum};
     my $msg = encode_json($payload);
 
     $server->print($channel->{name}, "<$server->{nick}> \00311{+} $_", MSGLEVEL_CLIENTCRAP);
@@ -312,11 +267,10 @@ sub msg_received
 
   my $pair = get_pair($keys, $server->{address}, $id);
 
-  return unless(exists($pair->{key}) && exists($pair->{iv})
-    && length($pair->{key}) > 0 && length($pair->{iv}) == $required_iv_length);
+  return unless(exists($pair->{key}) && length($pair->{key}) > 0);
 
-  $msg = substr decrypt($pair, $json->{$enc_id}), $salt_length;
-  my $checksum = checksum($msg . $json->{$salt_id});
+  $msg = decrypt($pair, $json->{$enc_id});
+  my $checksum = checksum($msg);
 
   if ($checksum eq $json->{$chk_id})
   {
@@ -337,7 +291,7 @@ sub msg_sent
   my ($data, $server, $channel) = @_;
   my $pair = get_pair($keys, $server->{address}, $channel->{name});
 
-  if(exists($pair->{key}) && exists($pair->{iv}) && exists($pair->{active}) && $pair->{active} eq 1)
+  if(exists($pair->{key}) && exists($pair->{active}) && $pair->{active} eq 1)
   {
     ui_encrypt($data, $server, $channel);
     Irssi::signal_stop();
@@ -350,7 +304,6 @@ sub ui_help
   Irssi::print("  /aes <msg>     : encrypt a single message");
   Irssi::print("  /aeson         : enable encryption for the current chan");
   Irssi::print("  /aesoff        : disable encryption for the current chan");
-  Irssi::print("  /aesiv <iv>    : set the IV for the current chan to <iv>");
   Irssi::print("  /aeskey <key>  : set the Key for the current chan to <key>");
   Irssi::print("  /aesshow       : display the Key and IV for the current chan");
   Irssi::print("  /aesload       : reload the config from disk");
@@ -364,7 +317,6 @@ sub ui_banner
 }
 
 Irssi::command_bind('aes', 'ui_encrypt');
-Irssi::command_bind('aesiv', 'ui_set_iv');
 Irssi::command_bind('aeskey', 'ui_set_key');
 Irssi::command_bind('aesload', 'ui_load');
 Irssi::command_bind('aesshow', 'ui_show');
